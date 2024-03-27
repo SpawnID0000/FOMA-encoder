@@ -10,25 +10,17 @@ FOMA is designed for those that lose sleep decideding whether to use lossy, loss
 For example, once a hi-res lossless file is converted to a FOMA package, it generates low bitrate lossy (Opus 128 kbps) & compact resolution lossless (FLAC 16 bit 48 kHz) files.  Additionally, a set of residual files are generated to allow reconstruction of standard resolution lossless (FLAC 24 bit 48 kHz) and high resolution lossless (FLAC 24 bit >48 kHz) files.
 
 
+
 ## What The ?!
 
 - TH = “Thumbnail”
 	- Opus, mono, 6 kbps CBR, fs 24 kHz, frame 40 ms
-	- 960 samples/frame
-	- 1 chunk = 32 frames = 30,720 samples = 1.28 s
 
 - LB = “Low Bitrate”
 	- Opus, 128 kbps CBR, 48 kHz, frame 2.5 ms
-	- 120 samples/frame
-	- 1 chunk = 512 frames = 61,440 samples = 1.28 s
-
-- CD = “Compact Disc”
-	- FLAC, 16 bit, fs 44.1 kHz
 
 - CR = “Compact Resolution”
 	- FLAC, 16 bit, fs 48 kHz
-	- 4096 samples/block = 85.33 ms block duration
-	- 1 chunk = 15 blocks = 61,440 samples = 1.28 s
 
 - SR = “Standard Resolution”
 	- FLAC, 24 bit, fs 48 kHz
@@ -37,12 +29,30 @@ For example, once a hi-res lossless file is converted to a FOMA package, it gene
 	- FLAC, 24 bit, fs > 48 kHz
 
 
+
 ## FOMA-encoder
 `FOMA-encoder` is a Python script that converts an input audio file (ideally hi-res) into a FOMA package.
 ```
 python3 FOMA-encoder.py <input_file_path>
 
 ```
+
+
+
+## Geeky Stuff for Future Spatial Audio Coolness
+
+- TH chunk info
+	- 960 samples/frame
+	- 1 chunk = 32 frames = 30,720 samples = 1.28 s
+
+- LB chunk info
+	- 120 samples/frame
+	- 1 chunk = 512 frames = 61,440 samples = 1.28 s
+
+- CR, SR, & HR  chunk info
+	- 4096 samples/block = 85.33 ms block duration
+	- 1 chunk = 15 blocks = 61,440 samples = 1.28 s
+
 
 
 ## License
