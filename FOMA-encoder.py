@@ -2,6 +2,7 @@ import subprocess
 import os
 import sys
 import librosa
+import shutil
 import soundfile as sf
 import numpy as np
 
@@ -110,38 +111,37 @@ def reconstruct_from_residuals(base_path, residual_paths, reconstructed_path, ta
     sf.write(reconstructed_path, signal.T, target_sr, format='FLAC', subtype='PCM_24')
     print(f"Reconstructed file created: {reconstructed_path}")
 
-def reconstruct_and_generate_residuals(input_file_path, output_folder):
+def reconstruct_and_generate_residuals(input_file_path, output_folder, process_SR, process_HR):
     sample_rate, _, _, _, _ = get_audio_properties(input_file_path)
     base_name = os.path.splitext(os.path.basename(input_file_path))[0]
-
     base_path = os.path.join(output_folder, f"{base_name}_CR.flac")
-    sr_residual_path = os.path.join(output_folder, f"{base_name}_SR_residual.flac")
-    sr_reconstructed_path = os.path.join(output_folder, f"{base_name}_SR_reco.flac")
-    reconstruct_from_residuals(base_path, [sr_residual_path], sr_reconstructed_path, 48000, output_folder)
+    if process_SR:
+        sr_residual_path = os.path.join(output_folder, f"{base_name}_SR_residual.flac")
+        sr_reconstructed_path = os.path.join(output_folder, f"{base_name}_SR_reco.flac")
+        reconstruct_from_residuals(base_path, [sr_residual_path], sr_reconstructed_path, 48000, output_folder)
+        sr_original_path = os.path.join(output_folder, f"{base_name}_SR.flac")
+        sr_reco_residual_path = os.path.join(output_folder, f"{base_name}_SR_reco_residual.flac")
+        generate_residual(sr_original_path, sr_reconstructed_path, sr_reco_residual_path, output_folder)
+    if process_HR:
+        hr_residual_path = os.path.join(output_folder, f"{base_name}_HR_residual.flac")
+        hr_reconstructed_path = os.path.join(output_folder, f"{base_name}_HR_reco.flac")
+        residuals_to_use = [sr_residual_path] if process_SR else []
+        residuals_to_use.append(hr_residual_path)
+        reconstruct_from_residuals(base_path, residuals_to_use, hr_reconstructed_path, sample_rate, output_folder)
+        hr_original_path = os.path.join(output_folder, f"{base_name}_HR.flac")
+        hr_reco_residual_path = os.path.join(output_folder, f"{base_name}_HR_reco_residual.flac")
+        generate_residual(hr_original_path, hr_reconstructed_path, hr_reco_residual_path, output_folder)
 
-    sr_original_path = os.path.join(output_folder, f"{base_name}_SR.flac")
-    sr_reco_residual_path = os.path.join(output_folder, f"{base_name}_SR_reco_residual.flac")
-    generate_residual(sr_original_path, sr_reconstructed_path, sr_reco_residual_path, output_folder)
-
-    hr_residual_path = os.path.join(output_folder, f"{base_name}_HR_residual.flac")
-    hr_reconstructed_path = os.path.join(output_folder, f"{base_name}_HR_reco.flac")
-    reconstruct_from_residuals(base_path, [sr_residual_path, hr_residual_path], hr_reconstructed_path, sample_rate, output_folder)
-    
-    hr_original_path = os.path.join(output_folder, f"{base_name}_HR.flac")
-    hr_reco_residual_path = os.path.join(output_folder, f"{base_name}_HR_reco_residual.flac")
-    generate_residual(hr_original_path, hr_reconstructed_path, hr_reco_residual_path, output_folder)
-
-#def generate_residual_file_path(output_folder, base_name, suffix):
-#    return os.path.join(output_folder, f"{base_name}_{suffix}")
-
-def analyze_residuals_and_delete_if_successful(output_folder, versions=('SR_reco_residual', 'HR_reco_residual')):
+def analyze_residuals_and_delete_if_successful(output_folder, versions, process_SR, process_HR):
     threshold_dbfs = -130
-    threshold_linear = 10**(threshold_dbfs / 20)
+    threshold_linear = 10 ** (threshold_dbfs / 20)
     success = True
     print("Starting analysis of residuals...")
     for version in versions:
+        if (version.endswith("SR_reco_residual.flac") and not process_SR) or \
+           (version.endswith("HR_reco_residual.flac") and not process_HR):
+            continue
         residual_path = os.path.join(output_folder, version)
-        #residual_path = generate_residual_file_path(output_folder, base_name, version)
         print(f"Checking file: {residual_path}")  # Debug line
         try:
             signal, _ = librosa.load(residual_path, sr=None, mono=False, dtype='float32')
@@ -156,25 +156,31 @@ def analyze_residuals_and_delete_if_successful(output_folder, versions=('SR_reco
             break
     if success:
         print("Reconstruction verified successfully for all versions. Proceeding to delete unnecessary files.")
-        delete_unnecessary_files(output_folder)
+        delete_unnecessary_files(output_folder, process_SR, process_HR)
+    else:
+        print("Reconstruction verification failed for one or more versions. Retaining all files for manual review.")
 
-def delete_unnecessary_files(output_folder):
+def delete_unnecessary_files(output_folder, process_SR, process_HR):
     base_name = os.path.basename(output_folder)
-    files_to_delete = [
-        f"{base_name}_SR.flac",
-        f"{base_name}_HR.flac",
-        f"{base_name}_CD.flac",
-        f"{base_name}_SR_reco.flac",
-        f"{base_name}_SR_reco_residual.flac",
-        f"{base_name}_HR_reco.flac",
-        f"{base_name}_HR_reco_residual.flac"
-    ]
+    files_to_delete = []
+    if process_SR:
+        files_to_delete.extend([
+            f"{base_name}_SR.flac", 
+            f"{base_name}_SR_reco.flac", 
+            f"{base_name}_SR_reco_residual.flac"
+        ])
+    if process_HR:
+        files_to_delete.extend([
+            f"{base_name}_HR.flac", 
+            f"{base_name}_HR_reco.flac", 
+            f"{base_name}_HR_reco_residual.flac"
+        ])
     for file_name in files_to_delete:
         file_path = os.path.join(output_folder, file_name)
-        try:
+        if os.path.exists(file_path):
             os.remove(file_path)
             print(f"Deleted {file_path}")
-        except FileNotFoundError:
+        else:
             print(f"File not found: {file_path}, skipping deletion.")
 
 def remove_metadata(file_paths):
@@ -193,17 +199,69 @@ def remove_metadata(file_paths):
             if os.path.exists(temp_file_path):
                 os.remove(temp_file_path)
 
+def report_file_sizes(input_file_path, output_folder, process_SR):
+    def get_size(start_path):
+        total_size = 0
+        for dirpath, dirnames, filenames in os.walk(start_path):
+            for f in filenames:
+                fp = os.path.join(dirpath, f)
+                if not os.path.islink(fp):
+                    total_size += os.path.getsize(fp)
+        return total_size
+    def format_size(bytes):
+        thresh = 1024
+        units = ['B', 'KB', 'MB', 'GB', 'TB', 'PB', 'EB', 'ZB', 'YB']
+        for unit in units:
+            if bytes < thresh:
+                return f"{bytes:.2f} {unit}"
+            bytes /= thresh
+    base_name = os.path.splitext(os.path.basename(input_file_path))[0]
+    lb_file_path = os.path.join(output_folder, f"{base_name}_LB.opus")
+    cr_file_path = os.path.join(output_folder, f"{base_name}_CR.flac")
+    input_file_size = os.path.getsize(input_file_path)
+    output_folder_size = get_size(output_folder)
+    lb_file_size = os.path.getsize(lb_file_path) if os.path.exists(lb_file_path) else 0
+    cr_file_size = os.path.getsize(cr_file_path) if os.path.exists(cr_file_path) else 0
+    combined_size = input_file_size + lb_file_size + cr_file_size if process_SR else 0
+    print(f"Input file size: {format_size(input_file_size)}")
+    print(f"LB file size: {format_size(lb_file_size)}")
+    print(f"CR file size: {format_size(cr_file_size)}")
+    if process_SR:
+        print(f"Input + LB + CR combined file size: {format_size(combined_size)}")
+    print(f"Total output folder size: {format_size(output_folder_size)}")
+
+#----------------------------------------------------------
+
 def main(input_file_path):
 
-    # Gen audio file properties
+    # Check file format
+    file_extension = os.path.splitext(input_file_path)[1].lower()
+    if file_extension != '.flac':
+        if file_extension in ['.alac', '.aiff', '.wav']:
+            print("ERROR: only FLAC input files are supported; please transcode to FLAC and try again.")
+            sys.exit(1)
+        elif file_extension in ['.mp3', '.aac', '.opus']:
+            print("WARNING: lossy files are not valid input for FOMA; please use original (i.e. non-transcoded) lossless files only.")
+            sys.exit(1)
+        else:
+            print(f"ERROR: Unsupported file format {file_extension}; FOMA only supports FLAC files.")
+            sys.exit(1)
+
+    # Get audio file properties
     sample_rate, bit_depth, _, _, _ = get_audio_properties(input_file_path)
     base_name = os.path.splitext(os.path.basename(input_file_path))[0]
     parent_dir = os.path.dirname(input_file_path)
 
+    # Determine processing requirements
+    process_SR = sample_rate <= 48000 and bit_depth >= 24 or sample_rate > 48000
+    process_HR = sample_rate > 48000 and bit_depth >= 24
+
     # Create output folder
     output_folder = os.path.join(parent_dir, base_name)
-    if not os.path.exists(output_folder):
-        os.makedirs(output_folder)
+    if os.path.exists(output_folder):
+        print(f"Output folder {output_folder} already exists. Deleting folder and its contents.")
+        shutil.rmtree(output_folder)
+    os.makedirs(output_folder)
 
     # Extract embedded album art
     extract_and_convert_album_art_to_jpg(input_file_path, output_folder)
@@ -223,33 +281,51 @@ def main(input_file_path):
             created_versions.append('_SR')
     resample_audio(input_file_path, '_CR', 48000, 16, output_folder, base_name)
     created_versions.append('_CR')
-    resample_audio(input_file_path, '_CD', 44100, 16, output_folder, base_name)
-    created_versions.append('_CD')
+    #resample_audio(input_file_path, '_CD', 44100, 16, output_folder, base_name)
+    #created_versions.append('_CD')
 
     # Create Opus versions
     generate_opus_file(input_file_path, '_LB', '48000', '128k', 'off', '2.5', 'lowdelay', '2', output_folder, base_name)
     generate_opus_file(input_file_path, '_TN', '12000', '6k', 'on', '40', 'audio', '1', output_folder, base_name)
 
-    # Generate residuals for SR and HR
-    if '_HR' in created_versions and '_SR' in created_versions:
-        generate_residual(f"{base_name}_SR.flac", f"{base_name}_HR.flac", f"{base_name}_HR_residual.flac", output_folder)
-    if '_SR' in created_versions and '_CR' in created_versions:
-        generate_residual(f"{base_name}_CR.flac", f"{base_name}_SR.flac", f"{base_name}_SR_residual.flac", output_folder)
+    # Generate residuals for HR and/or SR if applicable
+    print(f"Process SR: {process_SR}")
+    print(f"Process HR: {process_HR}")
+    if process_HR:
+        if '_SR' in created_versions:
+            generate_residual(f"{base_name}_SR.flac", f"{base_name}_HR.flac", f"{base_name}_HR_residual.flac", output_folder)
+    if process_SR:
+        if '_CR' in created_versions:
+            generate_residual(f"{base_name}_CR.flac", f"{base_name}_SR.flac", f"{base_name}_SR_residual.flac", output_folder)
 
     # Generate reconstructed versions and their residuals
-    reconstruct_and_generate_residuals(input_file_path, output_folder)
+    reconstruct_and_generate_residuals(input_file_path, output_folder, process_SR, process_HR)
 
     # Analyze residuals and delete unneccessary files if successful
-    analyze_residuals_and_delete_if_successful(output_folder, versions=[f"{base_name}_SR_reco_residual.flac", f"{base_name}_HR_reco_residual.flac"])
+    versions_to_analyze = []
+    if process_SR:
+        versions_to_analyze.append(f"{base_name}_SR_reco_residual.flac")
+    if process_HR:
+        versions_to_analyze.append(f"{base_name}_HR_reco_residual.flac")
+    if versions_to_analyze:
+        print(f"Versions to analyze: {versions_to_analyze}")
+        analyze_residuals_and_delete_if_successful(output_folder, versions_to_analyze, process_SR, process_HR)
+    else:
+        print("No versions to analyze.")
 
     # Remove metadata from all output files except _TN
     output_files = [
         os.path.join(output_folder, f"{base_name}_LB.opus"),
         os.path.join(output_folder, f"{base_name}_CR.flac"),
-        os.path.join(output_folder, f"{base_name}_HR_residual.flac"),
-        os.path.join(output_folder, f"{base_name}_SR_residual.flac"),
     ]
+    if process_SR:
+        output_files.append(os.path.join(output_folder, f"{base_name}_SR_residual.flac"))
+    if process_HR:
+        output_files.append(os.path.join(output_folder, f"{base_name}_HR_residual.flac"))
     remove_metadata(output_files)
+
+    # File size reporting
+    report_file_sizes(input_file_path, output_folder, process_SR)
 
 if __name__ == "__main__":
     if len(sys.argv) != 2:
